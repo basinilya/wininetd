@@ -383,8 +383,8 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 		//WriteFile(asock, "sh", 2, &nb, NULL);
 		winet_log(WINET_LOG_MESSAGE, "[%s] socket %d\n", WINET_APPNAME, asock);
 		if (
-			winet_create_stdhandles
-			//create_pump_handles
+			//winet_create_stdhandles
+			create_pump_handles
 			(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0)
 			return -1;
 		if (!(env = winet_prepare_env(pm, asock, saddr))) {
@@ -392,13 +392,6 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 			CloseHandle(si.hStdOutput);
 			CloseHandle(si.hStdInput);
 			return -1;
-		}
-		if (0) {
-			static SECURITY_ATTRIBUTES sa_inherit = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-			HANDLE h;
-			CreatePipe(&h, &si.hStdOutput, &sa_inherit, 0);
-			//DuplicateHandle(GetCurrentProcess(), si.hStdOutput, GetCurrentProcess(), , 0, TRUE, DUPLICATE_SAME_ACCESS)
-			CreatePipe(&h, &si.hStdOutput, &sa_inherit, 0);
 		}
 		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
 				    env, NULL, &si, &pi)) {

@@ -14,25 +14,45 @@ typedef struct pumpparam_t {
 #define pref ((HANDLE)sock == hRead ? "s2p" : "p2s")
 
 static
-int pump(HANDLE hRead, HANDLE hWrite, SOCKET sock)
+int pump_s2p(SOCKET sRead, HANDLE hWrite)
 {
 	char buf[2048], *p, *pend;
-	DWORD nr, nw;
+	int nr, nw;
 
-	winet_log(WINET_LOG_MESSAGE, "[%s] %s pump() started\n", WINET_APPNAME, pref);
+	for(;;) {
+		nr = recv(sRead, buf, sizeof(buf), 0);
+		if (nr < 0) {
+			pWinsockError("recv() failed");
+			return -1;
+		}
+		if (nr == 0) break;
+		pend = buf + nr;
+		for(p = buf; p < pend; p += nw, nr -= nw) {
+			if (!WriteFile(hWrite, p, nr, &nw, NULL)) {
+				pWin32Error("WriteFile() failed");
+				return -2;
+			}
+		}
+	}
+	return 0;
+}
+
+static
+int pump_p2s(HANDLE hRead, SOCKET sWrite)
+{
+	char buf[2048], *p, *pend;
+	int nr, nw;
 
 	for(;;) {
 		if (!ReadFile(hRead, buf, sizeof(buf), &nr, NULL)) {
 			pWin32Error("ReadFile() failed");
-			winet_log(WINET_LOG_ERROR, "[%s] %s ReadFile() failed\n", WINET_APPNAME, pref);
 			return -1;
 		}
-		winet_log(WINET_LOG_MESSAGE, "[%s] %s got %d\n", WINET_APPNAME, pref, nr);
 		if (nr == 0) break;
 		pend = buf + nr;
 		for(p = buf; p < pend; p += nw, nr -= nw) {
-			winet_log(WINET_LOG_MESSAGE, "[%s] writing to %d\n", WINET_APPNAME, hWrite);
-			if (!WriteFile(hWrite, p, nr, &nw, NULL)) {
+			nw = send(sWrite, p, nr, 0);
+			if (nw <= 0) {
 				pWin32Error("WriteFile() failed");
 				return -2;
 			}
@@ -49,7 +69,7 @@ DWORD WINAPI thr_p2s(LPVOID lpThreadParameter)
 
 	winet_log(WINET_LOG_MESSAGE, "[%s] p2s thread started\n", WINET_APPNAME);
 
-	rc = pump(pumpparam->p2s_our, (HANDLE)pumpparam->sock, pumpparam->sock);
+	rc = pump_p2s(pumpparam->p2s_our, pumpparam->sock);
 	if (rc != -2) {
 		/* EOF or read error */
 		if (SOCKET_ERROR == shutdown(pumpparam->sock, SD_SEND)) {
@@ -77,7 +97,7 @@ DWORD WINAPI thr_s2p(LPVOID lpThreadParameter)
 		pWin32Error("CreateThread() failed");
 		return 1;
 	}
-	rc = pump((HANDLE)pumpparam->sock, pumpparam->s2p_our, pumpparam->sock);
+	rc = pump_s2p(pumpparam->sock, pumpparam->s2p_our);
 	if (rc == -2) {
 		/* write error */
 		if (SOCKET_ERROR == shutdown(pumpparam->sock, SD_RECEIVE)) {
@@ -95,9 +115,6 @@ DWORD WINAPI thr_s2p(LPVOID lpThreadParameter)
 	return 0;
 }
 
-static
-SECURITY_ATTRIBUTES sa_inherit = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-
 int create_pump_handles(SOCKET sock, HANDLE *in, HANDLE *out, HANDLE *err)
 {
 	HANDLE s2p_their, p2s_their;
@@ -110,11 +127,11 @@ int create_pump_handles(SOCKET sock, HANDLE *in, HANDLE *out, HANDLE *err)
 		perror("malloc() failed");
 		return -1;
 	}
-	if (!CreatePipe(&s2p_their, &pumpparam->s2p_our, &sa_inherit, 0)) {
+	if (!CreatePipe(&s2p_their, &pumpparam->s2p_our, NULL, 0)) {
 		pWin32Error("CreatePipe() failed");
 		goto err1;
 	}
-	if (!CreatePipe(&pumpparam->p2s_our, &p2s_their, &sa_inherit, 0)) {
+	if (!CreatePipe(&pumpparam->p2s_our, &p2s_their, NULL, 0)) {
 		pWin32Error("CreatePipe() failed");
 		goto err2;
 	}
@@ -122,22 +139,37 @@ int create_pump_handles(SOCKET sock, HANDLE *in, HANDLE *out, HANDLE *err)
 	if (!DuplicateHandle(GetCurrentProcess(), p2s_their, GetCurrentProcess(),
 			     err, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
 		pWin32Error("DuplicateHandle() failed");
+		goto err3;
+	}
+
+	if (!DuplicateHandle(GetCurrentProcess(), p2s_their, GetCurrentProcess(),
+			     out, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+		pWin32Error("DuplicateHandle() failed");
 		goto err4;
 	}
-	///*aaa*/ { DWORD nb, dw; char buf[2048]; dw = ReadFile(pumpparam->p2s_our, buf, sizeof(buf), &nb, NULL); }
+
+	CloseHandle(p2s_their);
+
+	if (!DuplicateHandle(GetCurrentProcess(), s2p_their, GetCurrentProcess(),
+			     in, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+		pWin32Error("DuplicateHandle() failed");
+		goto err5;
+	}
+
+	CloseHandle(s2p_their);
 
 	pumpparam->sock = sock;
-	if (1) {
 	hthr_s2p = CreateThread(NULL, 0, thr_s2p, pumpparam, 0, &tid);
 	if (!hthr_s2p) {
 		pWin32Error("CreateThread() failed");
-		goto err3;
+		goto err6;
 	}
 	CloseHandle(hthr_s2p);
-	}
-	*in = s2p_their;
-	*out = p2s_their;
 	return 0;
+err6:
+	CloseHandle(*in);
+err5:
+	CloseHandle(*out);
 err4:
 	CloseHandle(*err);
 err3:
