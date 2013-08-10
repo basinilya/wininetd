@@ -1,0 +1,91 @@
+
+
+<head>
+<meta name="Author" content="Davide Libenzi">
+<meta name="GENERATOR" content="Microsoft FrontPage 4.0">
+<meta name="Keywords" content="windows,inetd,daemon,network,server,tcp/ip,port,client,server">
+<meta name="ProgId" content="FrontPage.Editor.Document">
+<title>WinInetd Home Page</title>
+</head>
+
+<body text="#0000FF">
+
+<p align="center"><font size="+1"><b>WinInetd</b><br>
+by<br>
+<a href="http://www.xmailserver.org/davide.html">
+Davide Libenzi</a> &lt;<a href="mailto:davidel@xmailserver.org">davidel@xmailserver.org</a>&gt;<br>
+</font></p>
+<p align="left"><b><i>WinInetd</i></b> is a simple Windows service that offers
+the same (almost the same) functionalities that the Unix daemon <b><i>inetd</i></b>
+offers. The power of the Unix <b><i>inetd</i></b> is that it makes very simple
+for the developer to write network servers, since the server itself will do all
+its I/O through the standard input/output. This also makes it very easy to write
+portable network servers due to the complete absence inside the code of the
+networking code that usually is great part of the server core code. Both <b><i>inetd</i></b>
+and <b><i>WinInetd</i></b> are very simple and yet powerful. They read a
+configuration file that basically maps local TCP/IP ports to executable binary
+images and they listen on the user configured ports waiting for client
+connections. Once a connection is received they create the process linked to the
+connection port and they bind the connection socket to the standard
+input/output/error of the new process. The configuration file gives also the
+option to run the new process with the context of a user different from the one
+the service/daemon is currently running. This helps isolate the new process by
+giving a way to reduce the new process permissions and hence increase the
+security of the system. The server, by default,&nbsp; reads a configuration file
+named <i><b>wininetd.conf</b></i> inside the Windows directory but the command
+line option <i><b>--cfgfile</b></i> can be used to force the default value. The
+configuration file is very simple and it is composed by multiple lines following
+this format :</p>
+<p align="left"><b>PORT&nbsp;&nbsp;&nbsp; USER:PASS&nbsp;&nbsp;&nbsp; CMDLINE</b></p>
+<p align="left">Where <b>PORT</b> is the port number the server has to listen
+for incoming connections, <b>USER:PASS</b> is the username and password
+separated by a colon ( : ) character and <b>CMDLINE</b> is the path of the
+binary image to be executed and its command line parameters. It is possible to
+not specify any user (and hence having the new process to run with the service
+user credentials) by specifying <b>none</b> as <b>USER:PASS</b>. The user
+specified (if present) as owner of the new process must have batch logon
+capabilities to have <b><i>WinInetd</i></b> to successfully call <i>LogonUser</i>()
+(it is possible to set the logon batch capability through the security policy
+editor available among the Administrator tools). Example of valid configuration
+lines are :</p>
+<p align="left">10002&nbsp;&nbsp;&nbsp; davide:DamnYou&nbsp;&nbsp;&nbsp; c:\windows\system32\cmd.exe<br>
+10123&nbsp;&nbsp;&nbsp; none&nbsp;&nbsp;&nbsp; c:\echo\echocs.exe
+-d -c 156</p>
+<p align="left">Every line that does not start with a digit is considered a
+comment, and either space or tab are valid separators between configuration line
+values. To install the service you can run :</p>
+<p align="left"><i>wininetd --install</i></p>
+<p align="left">from a MS-DOS prompt of a user that have service manipulation
+rights. On the contrary, to remove the service, you can run :</p>
+<p align="left"><i>wininetd --remove</i></p>
+<p align="left">Changes to the configuration file will become effective only
+when the server is restarted. It is also possible to run the service in debug
+mode by running :</p>
+<p align="left"><i>wininetd --debug ...</i><br>
+<br>
+from a MS-DOS prompt. The service also accept a few extra command line
+parameters that you will be able to set through the Windows service management
+console :</p>
+<p align="left"><i>--cfgfile&nbsp;&nbsp;&nbsp; file</i>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+= Sets the configuration file path<br>
+<i>--timeout nsecs</i>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = Sets the default socket
+timeout in seconds<br>
+--linger-timeout nsecs = Sets the socket close linger timeout (default 60)<br>
+<br>
+It is possible to examine log messages that <b><i>WinInetd</i></b> produces
+either through the MS-DOS prompt (when running in debug mode, see above) or
+through the Windows Event Viewer. The program that will be run by <b><i>WinInetd</i></b>
+will find a few environment variables set to help recognizing the client
+connection :</p>
+<p align="left"><i>CLIENT_IP</i>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+= Client IP address<br>
+<i>CLIENT_PORT</i>&nbsp; = Client PORT value</p>
+<p align="left">&nbsp;</p>
+<p align="center"><b><font size="+1">License and Software</font></b></p>
+<p align="left"><b><i>WinInetd</i></b> is made available through the <a href="http://www.gnu.org/copyleft/gpl.html">GNU
+GPL</a> license together with the complete sources. Please read carefully the <a href="http://www.gnu.org/copyleft/gpl.html">license</a>
+before using the software. The <i><b>WinInetd</b></i> service binary together
+with the full source is available here :</p>
+<p align="left"><a href="wininetd-0.7.zip">Version 0.7</a></p>
+<p align="left"><br>
+&nbsp;</p>
