@@ -39,10 +39,6 @@
 
 
 
-#define WINET_LOG_MESSAGE 1
-#define WINET_LOG_WARNING 2
-#define WINET_LOG_ERROR 3
-
 #define MAX_PMAPS 128
 #define CFGFILENAME "wininetd.conf"
 #define ACCEPT_TIMEOUT 4
@@ -68,7 +64,6 @@ typedef struct s_thread_data {
 
 static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size);
 static void winet_evtlog(char const *logmsg, long type);
-static int winet_log(int level, char const *fmt, ...);
 static int winet_load_cfg(char const *cfgfile);
 static int winet_create_listeners(void);
 static void winet_cleanup(void);
@@ -130,7 +125,7 @@ static void winet_evtlog(char const *logmsg, long type) {
 }
 
 
-static int winet_log(int level, char const *fmt, ...) {
+int winet_log(int level, char const *fmt, ...) {
 	va_list args;
 	char emsg[1024];
 
@@ -311,7 +306,7 @@ static int winet_user_handle(portmap_t *pm, HANDLE *husr) {
 	return 0;
 }
 
-
+int create_pump_handles(SOCKET sock, HANDLE *in, HANDLE *out, HANDLE *err);
 static int winet_create_stdhandles(SOCKET asock, HANDLE *in, HANDLE *out, HANDLE *err) {
 
 	if (!DuplicateHandle(GetCurrentProcess(), (HANDLE) asock, GetCurrentProcess(),
@@ -384,13 +379,26 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 	si.dwFlags = STARTF_USESTDHANDLES;
 
 	if (winet_user_handle(pm, &husr) < 0) {
-		if (winet_create_stdhandles(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0)
+		//DWORD nb;
+		//WriteFile(asock, "sh", 2, &nb, NULL);
+		winet_log(WINET_LOG_MESSAGE, "[%s] socket %d\n", WINET_APPNAME, asock);
+		if (
+			//winet_create_stdhandles
+			create_pump_handles
+			(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0)
 			return -1;
 		if (!(env = winet_prepare_env(pm, asock, saddr))) {
 			CloseHandle(si.hStdError);
 			CloseHandle(si.hStdOutput);
 			CloseHandle(si.hStdInput);
 			return -1;
+		}
+		if (0) {
+			static SECURITY_ATTRIBUTES sa_inherit = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+			HANDLE h;
+			CreatePipe(&h, &si.hStdOutput, &sa_inherit, 0);
+			//DuplicateHandle(GetCurrentProcess(), si.hStdOutput, GetCurrentProcess(), , 0, TRUE, DUPLICATE_SAME_ACCESS)
+			CreatePipe(&h, &si.hStdOutput, &sa_inherit, 0);
 		}
 		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
 				    env, NULL, &si, &pi)) {
@@ -443,12 +451,14 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: user='%s' cmdln='%s'\n", WINET_APPNAME, pm->user, pm->cmdline);
 	}
 
-	WaitForSingleObject(pi.hProcess, INFINITE);
-	
-	FreeEnvironmentStrings(env);
 	CloseHandle(si.hStdError);
 	CloseHandle(si.hStdOutput);
 	CloseHandle(si.hStdInput);
+
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	winet_log(WINET_LOG_MESSAGE, "[%s] process exited\n", WINET_APPNAME);
+
+	FreeEnvironmentStrings(env);
 
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);
@@ -589,3 +599,5 @@ int winet_main(int argc, char const **argv) {
 	return 0;
 }
 
+void pWin32Error(const char *x)
+{ winet_log(WINET_LOG_ERROR, "[%s] %s\n", WINET_APPNAME, x); }
