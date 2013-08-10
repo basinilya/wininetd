@@ -193,7 +193,7 @@ static int winet_create_listeners(void) {
 	struct linger ling;
 
 	for (i = 0; i < npmaps; i++) {
-		if ((pmaps[i].sock = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, 0)) == INVALID_SOCKET) {
+		if ((pmaps[i].sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create socket\n",
 				  WINET_APPNAME);
 			return -1;
@@ -383,8 +383,8 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 		//WriteFile(asock, "sh", 2, &nb, NULL);
 		winet_log(WINET_LOG_MESSAGE, "[%s] socket %d\n", WINET_APPNAME, asock);
 		if (
-			//winet_create_stdhandles
-			create_pump_handles
+			winet_create_stdhandles
+			//create_pump_handles
 			(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0)
 			return -1;
 		if (!(env = winet_prepare_env(pm, asock, saddr))) {
@@ -451,14 +451,13 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: user='%s' cmdln='%s'\n", WINET_APPNAME, pm->user, pm->cmdline);
 	}
 
-	CloseHandle(si.hStdError);
-	CloseHandle(si.hStdOutput);
-	CloseHandle(si.hStdInput);
-
 	WaitForSingleObject(pi.hProcess, INFINITE);
 	winet_log(WINET_LOG_MESSAGE, "[%s] process exited\n", WINET_APPNAME);
 
 	FreeEnvironmentStrings(env);
+	CloseHandle(si.hStdError);
+	CloseHandle(si.hStdOutput);
+	CloseHandle(si.hStdInput);
 
 	CloseHandle(pi.hThread);
 	CloseHandle(pi.hProcess);

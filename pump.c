@@ -13,10 +13,6 @@ typedef struct pumpparam_t {
 
 #define pref ((HANDLE)sock == hRead ? "s2p" : "p2s")
 
-BOOL WINAPI ReadFileSock(HANDLE hFile, LPVOID lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped)
-{
-}
-
 static
 int pump(HANDLE hRead, HANDLE hWrite, SOCKET sock)
 {
@@ -34,7 +30,7 @@ int pump(HANDLE hRead, HANDLE hWrite, SOCKET sock)
 		winet_log(WINET_LOG_MESSAGE, "[%s] %s got %d\n", WINET_APPNAME, pref, nr);
 		if (nr == 0) break;
 		pend = buf + nr;
-		for(p = buf; p < pend; p += nw) {
+		for(p = buf; p < pend; p += nw, nr -= nw) {
 			winet_log(WINET_LOG_MESSAGE, "[%s] writing to %d\n", WINET_APPNAME, hWrite);
 			if (!WriteFile(hWrite, p, nr, &nw, NULL)) {
 				pWin32Error("WriteFile() failed");
