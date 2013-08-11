@@ -100,7 +100,7 @@ int pump_p2s(HANDLE hRead, SOCKET sWrite)
 	int nr, nw;
 
 	for(;;) {
-		if (!ReadFile(hRead, buf, sizeof(buf), &nr, NULL)) {
+		if (!ReadFile(hRead, buf, sizeof(buf), &nr, NULL) && GetLastError() != ERROR_BROKEN_PIPE) {
 			pWin32Error("ReadFile() failed");
 			return -1;
 		}
@@ -130,8 +130,6 @@ DWORD WINAPI thr_p2s(LPVOID lpThreadParameter)
 		/* EOF or read error */
 		if (SOCKET_ERROR == shutdown(pumpparam->sock, SD_SEND)) {
 			pWinsockError("shutdown(SD_SEND) failed");
-		} else {
-			printf("shutdown(SD_SEND) ok\n");
 		}
 	}
 	if (!CloseHandle(pumpparam->p2s_our)) {
@@ -160,8 +158,6 @@ DWORD WINAPI thr_s2p(LPVOID lpThreadParameter)
 		/* write error */
 		if (SOCKET_ERROR == shutdown(pumpparam->sock, SD_RECEIVE)) {
 			pWinsockError("shutdown() failed");
-		} else {
-			printf("shutdown(SD_RECEIVE) ok\n");
 		}
 	}
 	if (!CloseHandle(pumpparam->s2p_our)) {
@@ -170,6 +166,10 @@ DWORD WINAPI thr_s2p(LPVOID lpThreadParameter)
 
 	WaitForSingleObject(hthr_p2s, INFINITE);
 	CloseHandle(hthr_p2s);
+	winet_log(WINET_LOG_MESSAGE, "closing socket\n");
+	if (SOCKET_ERROR == closesocket(pumpparam->sock)) {
+		pWinsockError("closesocket() failed");
+	}
 	free(pumpparam);
 
 	return 0;

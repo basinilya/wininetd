@@ -453,11 +453,6 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: user='%s' cmdln='%s'\n", WINET_APPNAME, pm->user, pm->cmdline);
 	}
 
-	WaitForSingleObject(pi.hProcess, INFINITE);
-	winet_log(WINET_LOG_MESSAGE, "[%s] process exited\n", WINET_APPNAME);
-
-	Sleep(1000);
-
 	FreeEnvironmentStrings(env);
 	CloseHandle(si.hStdError);
 	CloseHandle(si.hStdOutput);
