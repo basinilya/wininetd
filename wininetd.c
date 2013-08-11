@@ -389,8 +389,6 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 	si.dwFlags = STARTF_USESTDHANDLES;
 
 	if (winet_user_handle(pm, &husr) < 0) {
-		//DWORD nb;
-		//WriteFile(asock, "sh", 2, &nb, NULL);
 		winet_log(WINET_LOG_MESSAGE, "[%s] socket %d\n", WINET_APPNAME, asock);
 		if (
 			//winet_create_stdhandles
