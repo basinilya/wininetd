@@ -1,9 +1,65 @@
 #include <winsock2.h>
 #include <windows.h>
+#include <stdio.h>
 #include "wininetd.h"
 
-void pWin32Error(const char *x);
-#define pWinsockError pWin32Error
+#if defined _POSIX_THREAD_SAFE_FUNCTIONS
+# define FLOCKFILE flockfile
+# define FUNLOCKFILE funlockfile 
+#elif (defined _MSC_VER)
+# define FLOCKFILE _lock_file
+# define FUNLOCKFILE _unlock_file
+#else
+# define FLOCKFILE LockPointer
+# define FUNLOCKFILE UnlockPointer
+#endif
+
+void __pWin32Error(DWORD eNum, const char* fmt, va_list args)
+{
+	char* msg;
+
+	FLOCKFILE(stdout);
+
+	winet_log(WINET_LOG_WARNING, "[%s] ", WINET_APPNAME);
+	if (fmt) {
+		_winet_log(WINET_LOG_WARNING, fmt, args);
+  }
+
+  if (0 == FormatMessageA( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+         NULL, eNum,
+         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
+         (LPSTR )&msg, 0, NULL ))
+  {
+		(HLOCAL)msg = LocalAlloc(LMEM_FIXED, 30);
+		if (!msg) return;
+		sprintf(msg, "0x%08x (%d)", eNum, eNum);
+  }
+	winet_log(WINET_LOG_WARNING, ": %s\n", msg);
+
+	FUNLOCKFILE(stdout);
+
+	LocalFree((HLOCAL)msg);
+}
+
+void pWin32Error(char const *fmt, ...)
+{
+	va_list args;
+	DWORD eNum = GetLastError();
+
+	va_start(args, fmt);
+	__pWin32Error(eNum, fmt, args);
+	va_end(args);
+}
+
+void pWinsockError(char const *fmt, ...)
+{
+	va_list args;
+	DWORD eNum = WSAGetLastError();
+
+	va_start(args, fmt);
+	__pWin32Error(eNum, fmt, args);
+	va_end(args);
+}
 
 typedef struct pumpparam_t {
 	SOCKET sock;
@@ -73,7 +129,9 @@ DWORD WINAPI thr_p2s(LPVOID lpThreadParameter)
 	if (rc != -2) {
 		/* EOF or read error */
 		if (SOCKET_ERROR == shutdown(pumpparam->sock, SD_SEND)) {
-			pWinsockError("shutdown() failed");
+			pWinsockError("shutdown(SD_SEND) failed");
+		} else {
+			printf("shutdown(SD_SEND) ok\n");
 		}
 	}
 	if (!CloseHandle(pumpparam->p2s_our)) {
@@ -102,6 +160,8 @@ DWORD WINAPI thr_s2p(LPVOID lpThreadParameter)
 		/* write error */
 		if (SOCKET_ERROR == shutdown(pumpparam->sock, SD_RECEIVE)) {
 			pWinsockError("shutdown() failed");
+		} else {
+			printf("shutdown(SD_RECEIVE) ok\n");
 		}
 	}
 	if (!CloseHandle(pumpparam->s2p_our)) {

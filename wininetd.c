@@ -126,13 +126,11 @@ static void winet_evtlog(char const *logmsg, long type) {
 }
 
 
-int winet_log(int level, char const *fmt, ...) {
-	va_list args;
+int _winet_log(int level, char const *fmt, va_list args)
+{
 	char emsg[1024];
 
-	va_start(args, fmt);
 	_vsnprintf(emsg, sizeof(emsg) - 1, fmt, args);
-	va_end(args);
 
 	printf("%s", emsg);
 
@@ -142,6 +140,17 @@ int winet_log(int level, char const *fmt, ...) {
 	return 0;
 }
 
+int winet_log(int level, char const *fmt, ...)
+{
+	int rc;
+	va_list args;
+
+	va_start(args, fmt);
+	rc = _winet_log(level, fmt, args);
+	va_end(args);
+
+	return rc;
+}
 
 static int winet_load_cfg(char const *cfgfile) {
 	FILE *file;
@@ -447,6 +456,8 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 	WaitForSingleObject(pi.hProcess, INFINITE);
 	winet_log(WINET_LOG_MESSAGE, "[%s] process exited\n", WINET_APPNAME);
 
+	Sleep(1000);
+
 	FreeEnvironmentStrings(env);
 	CloseHandle(si.hStdError);
 	CloseHandle(si.hStdOutput);
@@ -463,8 +474,6 @@ unsigned int __stdcall winet_thread_proc(void *data) {
 	thread_data_t *thd = (thread_data_t *) data;
 
 	winet_serve_client(thd->pm, thd->asock, &thd->saddr);
-
-	closesocket(thd->asock);
 	free(thd);
 	return 0;
 }
@@ -590,6 +599,3 @@ int winet_main(int argc, char const **argv) {
 
 	return 0;
 }
-
-void pWin32Error(const char *x)
-{ winet_log(WINET_LOG_ERROR, "[%s] %s\n", WINET_APPNAME, x); }
