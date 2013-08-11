@@ -39,6 +39,10 @@
 
 
 
+#define WINET_LOG_MESSAGE 1
+#define WINET_LOG_WARNING 2
+#define WINET_LOG_ERROR 3
+
 #define MAX_PMAPS 128
 #define CFGFILENAME "wininetd.conf"
 #define ACCEPT_TIMEOUT 4
@@ -66,6 +70,8 @@ typedef struct s_thread_data {
 
 static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size);
 static void winet_evtlog(char const *logmsg, long type);
+static int _winet_log(int level, char const *fmt, va_list args);
+static int winet_log(int level, char const *fmt, ...);
 static int winet_load_cfg(char const *cfgfile);
 static int winet_create_listeners(void);
 static void winet_cleanup(void);
@@ -97,10 +103,9 @@ static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size) {
 	return buf;
 }
 
-/* pump.c */
 #if defined _POSIX_THREAD_SAFE_FUNCTIONS
 # define FLOCKFILE flockfile
-# define FUNLOCKFILE funlockfile 
+# define FUNLOCKFILE funlockfile
 #elif (defined _MSC_VER)
 # define FLOCKFILE _lock_file
 # define FUNLOCKFILE _unlock_file
@@ -231,8 +236,6 @@ DWORD WINAPI thr_p2s(LPVOID lpThreadParameter)
 	return 0;
 }
 
-/* pump.c END */
-
 static void winet_evtlog(char const *logmsg, long type) {
 	DWORD err;
 	HANDLE hesrc;
@@ -259,7 +262,7 @@ static void winet_evtlog(char const *logmsg, long type) {
 }
 
 
-int _winet_log(int level, char const *fmt, va_list args)
+static int _winet_log(int level, char const *fmt, va_list args)
 {
 	char emsg[1024];
 
@@ -646,6 +649,7 @@ unsigned int __stdcall winet_thread_proc(void *data) {
 	thread_data_t *thd = (thread_data_t *) data;
 
 	winet_serve_client(thd);
+
 	closesocket(thd->asock);
 	free(thd);
 	return 0;
@@ -772,3 +776,4 @@ int winet_main(int argc, char const **argv) {
 
 	return 0;
 }
+
