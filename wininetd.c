@@ -302,19 +302,17 @@ static void winet_evtlog(char const *logmsg, long type) {
 }
 
 
-int winet_log(int level, char const *fmt, ...)
-{
-	int rc;
-	char emsg[1024];
+static int winet_log(int level, char const *fmt, ...) {
 	va_list args;
+	char emsg[1024];
 
 	va_start(args, fmt);
 	_vsnprintf(emsg, sizeof(emsg) - 1, fmt, args);
-	rc = _winet_log(level, emsg);
 	va_end(args);
 
-	return rc;
+	return _winet_log(level, emsg);
 }
+
 
 static int winet_load_cfg(char const *cfgfile) {
 	FILE *file;
