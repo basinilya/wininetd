@@ -89,6 +89,7 @@ static portmap_t pmaps[MAX_PMAPS];
 static int sk_timeout = -1;
 static int linger_timeo = 60;
 static int stopsvc;
+static HANDLE hNul;
 
 
 
@@ -494,7 +495,7 @@ static int winet_create_stdhandles(HANDLE *in, HANDLE *out, HANDLE *err
 		goto err2;
 	}
 
-	if (!DuplicateHandle(GetCurrentProcess(), p2s_their, GetCurrentProcess(),
+	if (!DuplicateHandle(GetCurrentProcess(), hNul /*GetStdHandle(STD_ERROR_HANDLE)*/, GetCurrentProcess(),
 			     err, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
 		pWin32Error("DuplicateHandle() failed");
 		goto err3;
@@ -744,6 +745,12 @@ int winet_main(int argc, char const **argv) {
 			strcat(cfgpath, "\\");
 		strcat(cfgpath, CFGFILENAME);
 		cfgfile = cfgpath;
+	}
+
+	hNul = CreateFile("NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hNul == INVALID_HANDLE_VALUE) {
+		pWin32Error("CreateFile(NUL) failed");
+		return 3;
 	}
 
 	if (WSAStartup(MAKEWORD(2, 0), &WD)) {
