@@ -70,7 +70,6 @@ typedef struct s_thread_data {
 
 static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size);
 static void winet_evtlog(char const *logmsg, long type);
-static int _winet_log(int level, char const *fmt, va_list args);
 static int winet_log(int level, char const *fmt, ...);
 static int winet_load_cfg(char const *cfgfile);
 static int winet_create_listeners(void);
@@ -103,42 +102,68 @@ static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size) {
 	return buf;
 }
 
-#if defined _POSIX_THREAD_SAFE_FUNCTIONS
-# define FLOCKFILE flockfile
-# define FUNLOCKFILE funlockfile
-#elif (defined _MSC_VER)
-# define FLOCKFILE _lock_file
-# define FUNLOCKFILE _unlock_file
-#else
-# define FLOCKFILE LockPointer
-# define FUNLOCKFILE UnlockPointer
-#endif
-
-void __pWin32Error(DWORD eNum, const char* fmt, va_list args)
+static int _winet_log(int level, char const *emsg)
 {
-	char* msg;
+	printf("%s", emsg);
 
-	FLOCKFILE(stdout);
+	if (level == WINET_LOG_ERROR)
+		winet_evtlog(emsg, EVENTLOG_ERROR_TYPE);
 
-	winet_log(WINET_LOG_WARNING, "[%s] ", WINET_APPNAME);
-	if (fmt) {
-		_winet_log(WINET_LOG_WARNING, fmt, args);
-  }
+	return 0;
+}
 
-  if (0 == FormatMessageA( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-         NULL, eNum,
-         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
-         (LPSTR )&msg, 0, NULL ))
-  {
-		(HLOCAL)msg = LocalAlloc(LMEM_FIXED, 30);
-		if (!msg) return;
-		sprintf(msg, "0x%08x (%d)", eNum, eNum);
-  }
-	winet_log(WINET_LOG_WARNING, ": %s\n", msg);
+static char *cleanstr(char *s)
+{
+	while(*s) {
+		switch((int)*s){
+			case 13:
+			case 10:
+			*s=' ';
+			break;
+		}
+		s++;
+	}
+	return s;
+}
 
-	FUNLOCKFILE(stdout);
+static void __pWin32Error(int level, DWORD eNum, const char* fmt, va_list args)
+{
+	char emsg[1024];
+	char *pend = emsg + sizeof(emsg);
+	size_t count = sizeof(emsg);
+	unsigned u;
 
-	LocalFree((HLOCAL)msg);
+	do {
+		u = (unsigned)_snprintf(pend - count, count, "[%s] ", WINET_APPNAME);
+		if (u >= count) break;
+		count -= u;
+
+		u = (unsigned)_vsnprintf(pend - count, count, fmt, args);
+		if (u >= count) break;
+		count -= u;
+
+		u = (unsigned)_snprintf(pend - count, count, ": ");
+		if (u >= count) break;
+		count -= u;
+
+		u = FormatMessageA( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+															NULL, eNum,
+															MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
+															pend - count, count, NULL );
+		if (u == 0) {
+			u = (unsigned)_snprintf(pend - count, count, "0x%08x (%d)", eNum, eNum);
+		}
+	} while(0);
+
+	emsg[sizeof(emsg)-1] = '\0';
+	pend = cleanstr(emsg);
+
+	if (pend < emsg + sizeof(emsg)-1) {
+		pend++;
+		*pend = '\0';
+	}
+	pend[-1] = '\n';
+	_winet_log(level, emsg);
 }
 
 void pWin32Error(char const *fmt, ...)
@@ -147,7 +172,7 @@ void pWin32Error(char const *fmt, ...)
 	DWORD eNum = GetLastError();
 
 	va_start(args, fmt);
-	__pWin32Error(eNum, fmt, args);
+	__pWin32Error(WINET_LOG_WARNING, eNum, fmt, args);
 	va_end(args);
 }
 
@@ -157,7 +182,7 @@ void pWinsockError(char const *fmt, ...)
 	DWORD eNum = WSAGetLastError();
 
 	va_start(args, fmt);
-	__pWin32Error(eNum, fmt, args);
+	__pWin32Error(WINET_LOG_WARNING, eNum, fmt, args);
 	va_end(args);
 }
 
@@ -277,27 +302,15 @@ static void winet_evtlog(char const *logmsg, long type) {
 }
 
 
-static int _winet_log(int level, char const *fmt, va_list args)
-{
-	char emsg[1024];
-
-	_vsnprintf(emsg, sizeof(emsg) - 1, fmt, args);
-
-	printf("%s", emsg);
-
-	if (level == WINET_LOG_ERROR)
-		winet_evtlog(emsg, EVENTLOG_ERROR_TYPE);
-
-	return 0;
-}
-
 int winet_log(int level, char const *fmt, ...)
 {
 	int rc;
+	char emsg[1024];
 	va_list args;
 
 	va_start(args, fmt);
-	rc = _winet_log(level, fmt, args);
+	_vsnprintf(emsg, sizeof(emsg) - 1, fmt, args);
+	rc = _winet_log(level, emsg);
 	va_end(args);
 
 	return rc;
