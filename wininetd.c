@@ -201,7 +201,7 @@ int pump_p2s(HANDLE hRead, SOCKET sWrite)
 		for(p = buf; p < pend; p += nw, nr -= nw) {
 			nw = send(sWrite, p, nr, 0);
 			if (nw <= 0) {
-				pWin32Error("WriteFile() failed");
+				pWinsockError("send() failed");
 				return -2;
 			}
 		}
