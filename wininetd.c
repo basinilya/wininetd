@@ -161,6 +161,21 @@ void pWinsockError(char const *fmt, ...)
 	va_end(args);
 }
 
+#ifdef _DEBUG
+static void dbg_CloseHandle(const char *file, int line, HANDLE hObject) {
+	if (!CloseHandle(hObject)) {
+		pWin32Error("CloseHandle() failed at %s:%d", file, line);
+	}
+}
+static void dbg_closesocket(const char *file, int line, SOCKET s) {
+	if (closesocket(s) == SOCKET_ERROR) {
+		pWinsockError("closesocket() failed at %s:%d", file, line);
+	}
+}
+#define CloseHandle(hObject) dbg_CloseHandle(__FILE__, __LINE__, hObject)
+#define closesocket(s) dbg_closesocket(__FILE__, __LINE__, s)
+#endif /* _DEBUG */
+
 static
 int pump_s2p(SOCKET sRead, HANDLE hWrite)
 {
