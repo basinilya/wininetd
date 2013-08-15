@@ -478,10 +478,7 @@ static int winet_user_handle(portmap_t *pm, HANDLE *husr) {
 	return 0;
 }
 
-static int winet_create_stdhandles(HANDLE *in, HANDLE *out, HANDLE *err
-																	 , HANDLE *pPipeOurWrite
-																	 , HANDLE *pPipeOurRead
-																	 )
+static int winet_create_stdhandles(HANDLE *in, HANDLE *out, HANDLE *err, HANDLE *pPipeOurWrite, HANDLE *pPipeOurRead)
 {
 	HANDLE s2p_their, p2s_their;
 
