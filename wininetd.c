@@ -51,6 +51,7 @@
 
 
 
+#define WINET_CHILD_FLAGS (CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
 
 typedef struct s_portmap {
 	SOCKET sock;
@@ -393,7 +394,7 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 			CloseHandle(si.hStdInput);
 			return -1;
 		}
-		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
+		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, WINET_CHILD_FLAGS,
 				    env, NULL, &si, &pi)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create process: cmdln='%s' err='%s'\n",
 				  WINET_APPNAME, pm->cmdline, emsg = winet_get_syserror());
@@ -426,7 +427,7 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 			CloseHandle(si.hStdInput);
 			return -1;
 		}
-		if (!CreateProcessAsUserA(husr, NULL, pm->cmdline, NULL, NULL, TRUE, CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
+		if (!CreateProcessAsUserA(husr, NULL, pm->cmdline, NULL, NULL, TRUE, WINET_CHILD_FLAGS,
 					  env, NULL, &si, &pi)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create process as user: cmdln='%s' user='%s' err='%s'\n",
 				  WINET_APPNAME, pm->cmdline, pm->user, emsg = winet_get_syserror());
