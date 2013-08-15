@@ -456,9 +456,6 @@ static int winet_user_handle(portmap_t *pm, HANDLE *husr) {
 	HANDLE hlog;
 	char *emsg;
 
-	if (!pm->pass)
-		return -1;
-
 	if (!LogonUserA(pm->user, ".", pm->pass, LOGON32_LOGON_BATCH, LOGON32_PROVIDER_DEFAULT, &hlog)) {
 		winet_log(WINET_LOG_ERROR, "[%s] unable to logon user: user='%s' pass='%s' err='%s'\n",
 			  WINET_APPNAME, pm->user, pm->pass, emsg = winet_get_syserror());
@@ -596,8 +593,7 @@ static int winet_serve_client(thread_data_t *thd) {
 	si.lpDesktop = "";
 	si.dwFlags = STARTF_USESTDHANDLES;
 
-	if (winet_user_handle(pm, &husr) < 0) {
-		husr = NULL;
+	if (!pm->pass) {
 		winet_log(WINET_LOG_MESSAGE, "[%s] socket %d\n", WINET_APPNAME, asock);
 		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, WINET_CHILD_FLAGS, env, NULL, &si, &pi)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create process: cmdln='%s' err='%s'\n",
@@ -607,6 +603,7 @@ static int winet_serve_client(thread_data_t *thd) {
 		}
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: cmdln='%s'\n", WINET_APPNAME, pm->cmdline);
 	} else {
+		if (winet_user_handle(pm, &husr) < 0) goto spawn_failed;
 		if (!ImpersonateLoggedOnUser(husr)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to impersonate user: user='%s' err='%s'\n",
 				  WINET_APPNAME, pm->user, emsg = winet_get_syserror());
