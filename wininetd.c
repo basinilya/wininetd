@@ -65,6 +65,7 @@ typedef struct s_thread_data {
 	portmap_t *pm;
 	SOCKET asock;
 	struct sockaddr_in saddr;
+	HANDLE hPipeOurRead;
 } thread_data_t;
 
 
@@ -76,10 +77,8 @@ static int winet_create_listeners(void);
 static void winet_cleanup(void);
 static char *winet_get_syserror(void);
 static int winet_user_handle(portmap_t *pm, HANDLE *husr);
-static int winet_create_stdhandles(SOCKET asock, HANDLE *in, HANDLE *out, HANDLE *err);
 static _TCHAR *winet_inet_ntoa(struct in_addr addr, _TCHAR *buf, int size);
 static LPVOID winet_prepare_env(portmap_t *pm, SOCKET asock, struct sockaddr_in *saddr);
-static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *saddr);
 unsigned int __stdcall winet_thread_proc(void *data);
 static int winet_handle_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *saddr);
 
@@ -104,7 +103,179 @@ static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size) {
 	return buf;
 }
 
+static int _winet_log(int level, char const *emsg)
+{
+	printf("%s", emsg);
 
+	if (level == WINET_LOG_ERROR)
+		winet_evtlog(emsg, EVENTLOG_ERROR_TYPE);
+
+	return 0;
+}
+
+static char *cleanstr(char *s)
+{
+	while(*s) {
+		switch((int)*s){
+			case 13:
+			case 10:
+			*s=' ';
+			break;
+		}
+		s++;
+	}
+	return s;
+}
+
+static void __pWin32Error(int level, DWORD eNum, const char* fmt, va_list args)
+{
+	char emsg[1024];
+	char *pend = emsg + sizeof(emsg);
+	size_t count = sizeof(emsg);
+	unsigned u;
+
+	do {
+		u = (unsigned)_snprintf(pend - count, count, "[%s] ", WINET_APPNAME);
+		if (u >= count) break;
+		count -= u;
+
+		u = (unsigned)_vsnprintf(pend - count, count, fmt, args);
+		if (u >= count) break;
+		count -= u;
+
+		u = (unsigned)_snprintf(pend - count, count, ": ");
+		if (u >= count) break;
+		count -= u;
+
+		u = FormatMessageA( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+															NULL, eNum,
+															MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
+															pend - count, count, NULL );
+		if (u == 0) {
+			u = (unsigned)_snprintf(pend - count, count, "0x%08x (%d)", eNum, eNum);
+		}
+	} while(0);
+
+	emsg[sizeof(emsg)-1] = '\0';
+	pend = cleanstr(emsg);
+
+	if (pend < emsg + sizeof(emsg)-1) {
+		pend++;
+		*pend = '\0';
+	}
+	pend[-1] = '\n';
+	_winet_log(level, emsg);
+}
+
+void pWin32Error(char const *fmt, ...)
+{
+	va_list args;
+	DWORD eNum = GetLastError();
+
+	va_start(args, fmt);
+	__pWin32Error(WINET_LOG_WARNING, eNum, fmt, args);
+	va_end(args);
+}
+
+void pWinsockError(char const *fmt, ...)
+{
+	va_list args;
+	DWORD eNum = WSAGetLastError();
+
+	va_start(args, fmt);
+	__pWin32Error(WINET_LOG_WARNING, eNum, fmt, args);
+	va_end(args);
+}
+
+#ifdef _DEBUG
+static void dbg_CloseHandle(const char *file, int line, HANDLE hObject) {
+	if (!CloseHandle(hObject)) {
+		pWin32Error("CloseHandle() failed at %s:%d", file, line);
+	}
+}
+static void dbg_closesocket(const char *file, int line, SOCKET s) {
+	if (closesocket(s) == SOCKET_ERROR) {
+		pWinsockError("closesocket() failed at %s:%d", file, line);
+	}
+}
+#define CloseHandle(hObject) dbg_CloseHandle(__FILE__, __LINE__, hObject)
+#define closesocket(s) dbg_closesocket(__FILE__, __LINE__, s)
+#endif /* _DEBUG */
+
+static
+int pump_s2p(SOCKET sRead, HANDLE hWrite)
+{
+	char buf[2048], *p, *pend;
+	int nr, nw;
+
+	for(;;) {
+		nr = recv(sRead, buf, sizeof(buf), 0);
+		if (nr < 0) {
+			pWinsockError("recv() failed");
+			return -1;
+		}
+		if (nr == 0) break;
+		pend = buf + nr;
+		for(p = buf; p < pend; p += nw, nr -= nw) {
+			if (!WriteFile(hWrite, p, nr, &nw, NULL)) {
+				pWin32Error("WriteFile() failed");
+				return -2;
+			}
+		}
+	}
+	return 0;
+}
+
+static
+int pump_p2s(HANDLE hRead, SOCKET sWrite)
+{
+	char buf[2048], *p, *pend;
+	int nr, nw;
+
+	for(;;) {
+		if (!ReadFile(hRead, buf, sizeof(buf), &nr, NULL) && GetLastError() != ERROR_BROKEN_PIPE) {
+			pWin32Error("ReadFile() failed");
+			return -1;
+		}
+		if (nr == 0) break;
+		pend = buf + nr;
+		for(p = buf; p < pend; p += nw, nr -= nw) {
+			nw = send(sWrite, p, nr, 0);
+			if (nw <= 0) {
+				pWinsockError("send() failed");
+				return -2;
+			}
+		}
+	}
+	return 0;
+}
+
+static
+DWORD WINAPI thr_p2s(LPVOID lpThreadParameter)
+{
+	int rc;
+	thread_data_t *thd = (thread_data_t *)lpThreadParameter;
+
+	winet_log(WINET_LOG_MESSAGE, "[%s] p2s thread started\n", WINET_APPNAME);
+
+	rc = pump_p2s(thd->hPipeOurRead, thd->asock);
+	if (rc != -2) {
+		/* EOF or read error */
+		winet_log(WINET_LOG_MESSAGE, "[%s] p2s EOF from child\n", WINET_APPNAME);
+		if (SOCKET_ERROR == shutdown(thd->asock, SD_SEND)) {
+			pWinsockError("p2s shutdown(SD_SEND) failed");
+		} else {
+			winet_log(WINET_LOG_MESSAGE, "[%s] p2s sent EOF to client\n", WINET_APPNAME);
+		}
+	} else {
+		winet_log(WINET_LOG_MESSAGE, "[%s] p2s write error to client\n", WINET_APPNAME);
+	}
+	CloseHandle(thd->hPipeOurRead);
+
+	winet_log(WINET_LOG_MESSAGE, "[%s] p2s thread exit\n", WINET_APPNAME);
+
+	return 0;
+}
 
 static void winet_evtlog(char const *logmsg, long type) {
 	DWORD err;
@@ -140,12 +311,7 @@ static int winet_log(int level, char const *fmt, ...) {
 	_vsnprintf(emsg, sizeof(emsg) - 1, fmt, args);
 	va_end(args);
 
-	printf("%s", emsg);
-
-	if (level == WINET_LOG_ERROR)
-		winet_evtlog(emsg, EVENTLOG_ERROR_TYPE);
-
-	return 0;
+	return _winet_log(level, emsg);
 }
 
 
@@ -310,32 +476,53 @@ static int winet_user_handle(portmap_t *pm, HANDLE *husr) {
 	return 0;
 }
 
+static int winet_create_stdhandles(HANDLE *in, HANDLE *out, HANDLE *err, HANDLE *pPipeOurWrite, HANDLE *pPipeOurRead)
+{
+	HANDLE s2p_their, p2s_their;
 
-static int winet_create_stdhandles(SOCKET asock, HANDLE *in, HANDLE *out, HANDLE *err) {
-
-	if (!DuplicateHandle(GetCurrentProcess(), (HANDLE) asock, GetCurrentProcess(),
-			     in, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-		winet_log(WINET_LOG_ERROR, "[%s] unable to duplicate handle\n",
-			  WINET_APPNAME);
+	if (!CreatePipe(&s2p_their, pPipeOurWrite, NULL, 0)) {
+		pWin32Error("CreatePipe() failed");
 		return -1;
 	}
-	if (!DuplicateHandle(GetCurrentProcess(), (HANDLE) asock, GetCurrentProcess(),
-			     out, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-		winet_log(WINET_LOG_ERROR, "[%s] unable to duplicate handle\n",
-			  WINET_APPNAME);
-		CloseHandle(*in);
-		return -1;
+	if (!CreatePipe(pPipeOurRead, &p2s_their, NULL, 0)) {
+		pWin32Error("CreatePipe() failed");
+		goto err2;
 	}
-	if (!DuplicateHandle(GetCurrentProcess(), (HANDLE) asock, GetCurrentProcess(),
+
+	if (!DuplicateHandle(GetCurrentProcess(), p2s_their, GetCurrentProcess(),
 			     err, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-		winet_log(WINET_LOG_ERROR, "[%s] unable to duplicate handle\n",
-			  WINET_APPNAME);
-		CloseHandle(*out);
-		CloseHandle(*in);
-		return -1;
+		pWin32Error("DuplicateHandle() failed");
+		goto err3;
 	}
+
+	if (!DuplicateHandle(GetCurrentProcess(), p2s_their, GetCurrentProcess(),
+			     out, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+		pWin32Error("DuplicateHandle() failed");
+		goto err4;
+	}
+
+	CloseHandle(p2s_their);
+
+	if (!DuplicateHandle(GetCurrentProcess(), s2p_their, GetCurrentProcess(),
+			     in, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+		pWin32Error("DuplicateHandle() failed");
+		goto err5;
+	}
+
+	CloseHandle(s2p_their);
 
 	return 0;
+err5:
+	CloseHandle(*out);
+err4:
+	CloseHandle(*err);
+err3:
+	CloseHandle(p2s_their);
+	CloseHandle(*pPipeOurRead);
+err2:
+	CloseHandle(*pPipeOurWrite);
+	CloseHandle(s2p_their);
+	return -1;
 }
 
 
@@ -370,7 +557,16 @@ static LPVOID winet_prepare_env(portmap_t *pm, SOCKET asock, struct sockaddr_in 
 }
 
 
-static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *saddr) {
+static int winet_serve_client(thread_data_t *thd) {
+	portmap_t *pm = thd->pm;
+	SOCKET asock = thd->asock;
+	struct sockaddr_in *saddr = &thd->saddr;
+
+	HANDLE hPipeOurWrite;
+	HANDLE hthr_p2s = NULL;
+	DWORD tid;
+	int rc = -1;
+
 	HANDLE husr;
 	char *emsg;
 	LPVOID env;
@@ -378,89 +574,102 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 	PROCESS_INFORMATION pi;
 
 	memset(&si, 0, sizeof(si));
+
+	if (winet_create_stdhandles(&si.hStdInput, &si.hStdOutput, &si.hStdError, &hPipeOurWrite, &thd->hPipeOurRead) < 0)
+		return -1;
+
+	hthr_p2s = CreateThread(NULL, 0, thr_p2s, thd, 0, &tid);
+	if (!hthr_p2s) {
+		pWin32Error("CreateThread() failed");
+		CloseHandle(thd->hPipeOurRead);
+		goto close_pipes_and_wait_thread;
+	}
+
+	/* now hPipeOurRead is owned by p2s thread */
+
+	if (!(env = winet_prepare_env(pm, asock, saddr)))
+		goto close_pipes_and_wait_thread;
+
 	si.cb = sizeof(si);
 	si.lpDesktop = "";
 	si.dwFlags = STARTF_USESTDHANDLES;
 
 	if (!pm->pass) {
-		if (winet_create_stdhandles(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0)
-			return -1;
-		if (!(env = winet_prepare_env(pm, asock, saddr))) {
-			CloseHandle(si.hStdError);
-			CloseHandle(si.hStdOutput);
-			CloseHandle(si.hStdInput);
-			return -1;
-		}
-		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, WINET_CHILD_FLAGS,
-				    env, NULL, &si, &pi)) {
+		winet_log(WINET_LOG_MESSAGE, "[%s] socket %d\n", WINET_APPNAME, asock);
+		if (!CreateProcessA(NULL, pm->cmdline, NULL, NULL, TRUE, WINET_CHILD_FLAGS, env, NULL, &si, &pi)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create process: cmdln='%s' err='%s'\n",
 				  WINET_APPNAME, pm->cmdline, emsg = winet_get_syserror());
 			free(emsg);
-			FreeEnvironmentStrings(env);
-			CloseHandle(si.hStdError);
-			CloseHandle(si.hStdOutput);
-			CloseHandle(si.hStdInput);
-			return -1;
+			goto spawn_failed;
 		}
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: cmdln='%s'\n", WINET_APPNAME, pm->cmdline);
 	} else {
-		if (winet_user_handle(pm, &husr) < 0) return -1;
+		if (winet_user_handle(pm, &husr) < 0) goto spawn_failed;
 		if (!ImpersonateLoggedOnUser(husr)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to impersonate user: user='%s' err='%s'\n",
 				  WINET_APPNAME, pm->user, emsg = winet_get_syserror());
 			free(emsg);
 			CloseHandle(husr);
-			return -1;
-		}
-		if (winet_create_stdhandles(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0) {
-			RevertToSelf();
-			CloseHandle(husr);
-			return -1;
-		}
-		if (!(env = winet_prepare_env(pm, asock, saddr))) {
-			RevertToSelf();
-			CloseHandle(husr);
-			CloseHandle(si.hStdError);
-			CloseHandle(si.hStdOutput);
-			CloseHandle(si.hStdInput);
-			return -1;
+			goto spawn_failed;
 		}
 		if (!CreateProcessAsUserA(husr, NULL, pm->cmdline, NULL, NULL, TRUE, WINET_CHILD_FLAGS,
 					  env, NULL, &si, &pi)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create process as user: cmdln='%s' user='%s' err='%s'\n",
 				  WINET_APPNAME, pm->cmdline, pm->user, emsg = winet_get_syserror());
 			free(emsg);
-			FreeEnvironmentStrings(env);
 			RevertToSelf();
 			CloseHandle(husr);
-			CloseHandle(si.hStdError);
-			CloseHandle(si.hStdOutput);
-			CloseHandle(si.hStdInput);
-			return -1;
+			goto spawn_failed;
 		}
 		RevertToSelf();
 		CloseHandle(husr);
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: user='%s' cmdln='%s'\n", WINET_APPNAME, pm->user, pm->cmdline);
 	}
 
-	WaitForSingleObject(pi.hProcess, INFINITE);
-	
+	CloseHandle(pi.hThread);
+	CloseHandle(pi.hProcess);
+
+	rc = 0;
+
+spawn_failed:
 	FreeEnvironmentStrings(env);
+
+close_pipes_and_wait_thread:
+	/* Close our copies of std handles */
 	CloseHandle(si.hStdError);
 	CloseHandle(si.hStdOutput);
 	CloseHandle(si.hStdInput);
 
-	CloseHandle(pi.hThread);
-	CloseHandle(pi.hProcess);
+	if (rc == 0) {
+		if (pump_s2p(thd->asock, hPipeOurWrite) == -2) {
+			/* write error */
+			winet_log(WINET_LOG_MESSAGE, "[%s] s2p write error to child\n", WINET_APPNAME);
+			if (SOCKET_ERROR == shutdown(thd->asock, SD_RECEIVE)) {
+				pWinsockError("s2p shutdown(SD_RECEIVE) failed");
+			} else {
+				winet_log(WINET_LOG_MESSAGE, "[%s] s2p shutdown(SD_RECEIVE) ok\n", WINET_APPNAME);
+			}
+		} else {
+			winet_log(WINET_LOG_MESSAGE, "[%s] s2p EOF from client\n", WINET_APPNAME);
+		}
+	}
 
-	return 0;
+	CloseHandle(hPipeOurWrite);
+	winet_log(WINET_LOG_MESSAGE, "[%s] s2p sent EOF to child\n", WINET_APPNAME);
+
+	if (hthr_p2s) {
+		WaitForSingleObject(hthr_p2s, INFINITE);
+		CloseHandle(hthr_p2s);
+	}
+
+	return rc;
 }
 
 
 unsigned int __stdcall winet_thread_proc(void *data) {
 	thread_data_t *thd = (thread_data_t *) data;
 
-	winet_serve_client(thd->pm, thd->asock, &thd->saddr);
+	winet_serve_client(thd);
 
 	closesocket(thd->asock);
 	free(thd);
