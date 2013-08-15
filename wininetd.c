@@ -366,7 +366,7 @@ static int winet_create_listeners(void) {
 	struct linger ling;
 
 	for (i = 0; i < npmaps; i++) {
-		if ((pmaps[i].sock = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, 0)) == INVALID_SOCKET) {
+		if ((pmaps[i].sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to create socket\n",
 				  WINET_APPNAME);
 			return -1;
