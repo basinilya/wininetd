@@ -84,6 +84,10 @@ static int winet_handle_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *
 
 
 
+#define CLIENT_IP _TEXT("CLIENT_IP")
+#define CLIENT_PORT _TEXT("CLIENT_PORT")
+static LPTCH envSnapshot;
+static size_t envSnapshotNBytes;
 
 static int npmaps = 0;
 static portmap_t pmaps[MAX_PMAPS];
@@ -416,6 +420,10 @@ static int winet_create_listeners(void) {
 static void winet_cleanup(void) {
 	int i;
 
+	/* TODO: Looks like we don't wait for threads, that may use 'user','pass' or 'envSnapshot'  */
+
+	FreeEnvironmentStrings(envSnapshot);
+
 	for (i = 0; i < npmaps; i++) {
 		closesocket(pmaps[i].sock);
 		if (pmaps[i].user)
@@ -534,24 +542,36 @@ static _TCHAR *winet_inet_ntoa(struct in_addr addr, _TCHAR *buf, int size) {
 	return winet_a2t(ip, buf, size);
 }
 
+#define LONGEST_ADDR  _T("111.111.111.111")
+#define LONGEST_PORT  _T("12345")
 
 static LPVOID winet_prepare_env(portmap_t *pm, SOCKET asock, struct sockaddr_in *saddr) {
-	LPVOID env;
-	char *emsg;
-	_TCHAR buf[128];
+	LPTCH env;
+	LPTSTR p;
+	size_t newsize;
 
-	winet_inet_ntoa(saddr->sin_addr, buf, COUNTOF(buf));
-	SetEnvironmentVariable(_TEXT("CLIENT_IP"), buf);
-
-	_stprintf(buf, _TEXT("%d"), (int) ntohs(saddr->sin_port));
-	SetEnvironmentVariable(_TEXT("CLIENT_PORT"), buf);
-
-	if (!(env = GetEnvironmentStrings())) {
-		winet_log(WINET_LOG_ERROR, "[%s] unable to get environment: err='%s'\n",
-			  WINET_APPNAME, emsg = winet_get_syserror());
-		free(emsg);
+	newsize = envSnapshotNBytes
+		+ sizeof( CLIENT_IP _T("=") LONGEST_ADDR _T("\0") CLIENT_PORT _T("=") LONGEST_PORT _T("\0") )
+		;
+	env = (LPTCH)malloc(newsize);
+	if (!env) {
+		winet_log(WINET_LOG_ERROR, "[%s] malloc() failed\n", WINET_APPNAME);
 		return NULL;
 	}
+	memcpy(env, envSnapshot, envSnapshotNBytes);
+	p = env + (envSnapshotNBytes/sizeof(TCHAR));
+
+	_tcscpy(p, CLIENT_IP _T("="));
+	p += COUNTOF(CLIENT_IP _T("="))-1;
+	winet_inet_ntoa(saddr->sin_addr, p, COUNTOF(LONGEST_ADDR));
+	p += _tcslen(p) + 1;
+
+	_tcscpy(p, CLIENT_PORT _T("="));
+	p += COUNTOF(CLIENT_PORT _T("="))-1;
+	_stprintf(p, _TEXT("%d"), (int) ntohs(saddr->sin_port));
+	p += _tcslen(p) + 1;
+
+	*p = '\0';
 
 	return env;
 }
@@ -632,7 +652,7 @@ static int winet_serve_client(thread_data_t *thd) {
 	rc = 0;
 
 spawn_failed:
-	FreeEnvironmentStrings(env);
+	free(env);
 
 close_pipes_and_wait_thread:
 	/* Close our copies of std handles */
@@ -715,6 +735,8 @@ int winet_main(int argc, char const **argv) {
 	struct timeval tmo;
 	struct sockaddr_in saddr;
 	char cfgpath[MAX_PATH];
+	LPTSTR lpszVariable;
+	int rc = 1;
 
 	npmaps = 0;
 	sk_timeout = -1;
@@ -753,6 +775,21 @@ int winet_main(int argc, char const **argv) {
 		return 2;
 	}
 
+	/* init env */
+	SetEnvironmentVariable(CLIENT_IP, NULL);
+	SetEnvironmentVariable(CLIENT_PORT, NULL);
+	if (!(envSnapshot = GetEnvironmentStrings())) {
+		pWin32Error("GetEnvironmentStrings() failed");
+		goto cleanup;
+	}
+	lpszVariable = envSnapshot;
+	while (*lpszVariable)
+	{
+		lpszVariable += lstrlen(lpszVariable) + 1;
+	}
+	envSnapshotNBytes = (lpszVariable - envSnapshot)*sizeof(TCHAR);
+
+	rc = 0;
 	for (; !stopsvc;) {
 		FD_ZERO(&lsnset);
 		for (i = 0; i < npmaps; i++)
@@ -792,9 +829,10 @@ int winet_main(int argc, char const **argv) {
 		}
 	}
 
+cleanup:
 	winet_cleanup();
 	WSACleanup();
 
-	return 0;
+	return rc;
 }
 
