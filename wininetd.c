@@ -291,9 +291,6 @@ static int winet_user_handle(portmap_t *pm, HANDLE *husr) {
 	HANDLE hlog;
 	char *emsg;
 
-	if (!pm->pass)
-		return -1;
-
 	if (!LogonUserA(pm->user, ".", pm->pass, LOGON32_LOGON_BATCH, LOGON32_PROVIDER_DEFAULT, &hlog)) {
 		winet_log(WINET_LOG_ERROR, "[%s] unable to logon user: user='%s' pass='%s' err='%s'\n",
 			  WINET_APPNAME, pm->user, pm->pass, emsg = winet_get_syserror());
@@ -385,7 +382,7 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 	si.lpDesktop = "";
 	si.dwFlags = STARTF_USESTDHANDLES;
 
-	if (winet_user_handle(pm, &husr) < 0) {
+	if (!pm->pass) {
 		if (winet_create_stdhandles(asock, &si.hStdInput, &si.hStdOutput, &si.hStdError) < 0)
 			return -1;
 		if (!(env = winet_prepare_env(pm, asock, saddr))) {
@@ -407,6 +404,7 @@ static int winet_serve_client(portmap_t *pm, SOCKET asock, struct sockaddr_in *s
 		}
 		winet_log(WINET_LOG_MESSAGE, "[%s] process created: cmdln='%s'\n", WINET_APPNAME, pm->cmdline);
 	} else {
+		if (winet_user_handle(pm, &husr) < 0) return -1;
 		if (!ImpersonateLoggedOnUser(husr)) {
 			winet_log(WINET_LOG_ERROR, "[%s] unable to impersonate user: user='%s' err='%s'\n",
 				  WINET_APPNAME, pm->user, emsg = winet_get_syserror());
