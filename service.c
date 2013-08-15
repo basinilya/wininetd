@@ -27,6 +27,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <process.h>
+#include <locale.h>
 #include "wininetd.h"
 
 
@@ -274,6 +275,8 @@ static int remove_service(void) {
 
 
 static int debug_service(int argc, char const **argv) {
+
+	setlocale( LC_ALL, ".ACP" );
 
 	_tprintf(_TEXT("Debugging %s.\n"), _TEXT(WINET_APPNAME));
 
