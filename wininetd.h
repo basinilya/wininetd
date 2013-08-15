@@ -1,5 +1,6 @@
 /*
  *  WinInetd by Davide Libenzi ( Inetd-like daemon for Windows )
+ *  Copyright 2013  Ilya Basin
  *  Copyright (C) 2003  Davide Libenzi
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -25,7 +26,7 @@
 
 
 #define WINET_APPNAME "wininetd"
-#define WINET_VERSION "0.7"
+#define WINET_VERSION "0.7p.a" /* 'pump' or 'pipes' */
 
 
 #define COUNTOF(a) (sizeof(a) / sizeof(a[0]))

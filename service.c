@@ -1,5 +1,6 @@
 /*
  *  WinInetd by Davide Libenzi ( Inetd-like daemon for Windows )
+ *  Copyright 2013  Ilya Basin
  *  Copyright (C) 2003  Davide Libenzi
  *
  *  This program is free software; you can redistribute it and/or modify
