@@ -66,7 +66,7 @@ static char **get_ascii_argv(int argc, LPWSTR *argv) {
 	len = (argc + 1) * sizeof(char *);
 	for (i = 0; i < argc; i++)
 		len += wcslen(argv[i]) + 2 * sizeof(char);
-	if (!(ptr = malloc(len)))
+	if (!(ptr = (char*)malloc(len)))
 		return NULL;
 	top = ptr + len;
 	aargv = (char **) ptr;
@@ -180,7 +180,7 @@ static int report_to_scm(DWORD cstate, DWORD excode, DWORD whint) {
 static void log_message(LPTSTR logmsg) {
 	HANDLE hesrc;
 	_TCHAR lmsg[256];
-	LPTSTR strs[2];
+	LPCTSTR strs[2];
 
 	if (!dbgsvc) {
 		lsterr = GetLastError();

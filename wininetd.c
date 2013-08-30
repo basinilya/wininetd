@@ -210,7 +210,8 @@ static
 int pump_s2p(SOCKET sRead, HANDLE hWrite)
 {
 	char buf[2048], *p, *pend;
-	int nr, nw;
+	int nr;
+	DWORD nw;
 
 	for(;;) {
 		nr = recv(sRead, buf, sizeof(buf), 0);
@@ -234,7 +235,8 @@ static
 int pump_p2s(HANDLE hRead, SOCKET sWrite)
 {
 	char buf[2048], *p, *pend;
-	int nr, nw;
+	int nw;
+	DWORD nr;
 
 	for(;;) {
 		if (!ReadFile(hRead, buf, sizeof(buf), &nr, NULL) && GetLastError() != ERROR_BROKEN_PIPE) {
@@ -286,7 +288,7 @@ static void winet_evtlog(char const *logmsg, long type) {
 	HANDLE hesrc;
 	LPTSTR tmsg;
 	_TCHAR lmsg[128];
-	LPTSTR strs[2];
+	LPCTSTR strs[2];
 	_TCHAR wmsg[1024];
 
 	winet_a2t(logmsg, wmsg, COUNTOF(wmsg));
