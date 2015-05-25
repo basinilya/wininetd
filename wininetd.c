@@ -110,6 +110,7 @@ static _TCHAR *winet_a2t(char const *str, _TCHAR *buf, int size) {
 static int _winet_log(int level, char const *emsg)
 {
 	printf("%s", emsg);
+	fflush(stdout);
 
 	if (level == WINET_LOG_ERROR)
 		winet_evtlog(emsg, EVENTLOG_ERROR_TYPE);
