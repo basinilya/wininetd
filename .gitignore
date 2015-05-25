@@ -29,3 +29,7 @@ mt.dep
 *.tlb
 
 *.user
+
+Debug/
+Release/
+*.sdf

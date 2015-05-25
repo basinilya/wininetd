@@ -206,7 +206,7 @@
 			Filter="cpp;c;cxx;rc;def;r;odl;idl;hpj;bat"
 			>
 			<File
-				RelativePath="service.c"
+				RelativePath="../service.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -226,7 +226,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="wininetd.c"
+				RelativePath="../wininetd.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -251,7 +251,7 @@
 			Filter="h;hpp;hxx;hm;inl"
 			>
 			<File
-				RelativePath="wininetd.h"
+				RelativePath="../wininetd.h"
 				>
 			</File>
 		</Filter>
