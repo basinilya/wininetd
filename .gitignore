@@ -19,6 +19,8 @@ mt.dep
 *.aps
 *.suo
 
+*.db
+*.opendb
 *.pdb
 
 *.exe
